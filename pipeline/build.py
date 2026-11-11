@@ -64,7 +64,7 @@ def read_files(src):
                 print(f"  skipping {path.name}: {err}")
                 continue
             # `ts` is typed timestamp[ms], but the stored integers are really
-            # Unix *seconds* (1770681535 = 2026-02-10). Read as ms they land in
+            # Unix *seconds* (1770727161 = 2026-02-10 12:39 UTC). Read as ms they land in
             # Jan 1970, which is what the README sample shows. Casting to int64
             # gets the raw value back without any timezone guessing.
             table = table.set_column(table.schema.get_field_index("ts"), "ts", table["ts"].cast(pa.int64()))
