@@ -1,6 +1,10 @@
 # Architecture
 
-**Stack.** Python + pyarrow for a build-time data pipeline. React + TypeScript + Vite for the UI. Plain Canvas 2D for the map. Vercel as a static host, so there's no server.
+**Stack, and why.**
+- Python + pyarrow: reads the parquet files directly, and the data rules are easy to test in Python.
+- React + TypeScript + Vite: fast to build with, and the types keep the JSON contract explicit.
+- Canvas 2D: draws one image plus ~90k points quickly, and gives full control over zoom, playback and hit-testing.
+- Vercel: static hosting. No server, no cold starts, and it redeploys on every push.
 
 **Data flow.** `pipeline/build.py` reads the 1,243 parquet files, decodes and cleans them, and decides human vs bot. It groups rows into matches, projects world (x, z) to minimap pixels, and writes one JSON per map plus a manifest and resized minimaps (`public/`). The browser loads one map's JSON (~435 KB compressed), filters by date and players, then `heatmap.ts` and `MapCanvas.tsx` draw it. All judgement calls about the data live in the pipeline.
 
