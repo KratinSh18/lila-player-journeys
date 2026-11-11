@@ -40,7 +40,10 @@ export function TopBar({ mapName, scope, matches, match, shareUrl, onBack }: Pro
         </div>
         <div className="stats">
           <Stat label="Length" value={formatClock(match.duration)} sub="First to last recorded event" />
-          <Stat label={match.bots ? 'Humans + bots' : 'Humans'} value={match.bots ? `${match.humans} + ${match.bots}` : match.humans} />
+          <Stat
+            label={match.bots ? 'Humans + bots' : match.humans === 1 ? 'Human' : 'Humans'}
+            value={match.bots ? `${match.humans} + ${match.bots}` : match.humans}
+          />
           <Stat label="Kills" value={match.counts.kill} tone="kill" />
           <Stat label="Loot" value={match.counts.loot} tone="loot" />
         </div>

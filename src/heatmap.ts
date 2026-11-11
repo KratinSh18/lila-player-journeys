@@ -96,9 +96,10 @@ function getPalette() {
   c.height = 1
   const ctx = c.getContext('2d')!
   const g = ctx.createLinearGradient(0, 0, 256, 0)
+  // The low end fades in slowly so rarely visited ground doesn't haze over the map.
   g.addColorStop(0, 'rgba(40, 60, 255, 0)')
-  g.addColorStop(0.15, 'rgba(40, 90, 255, 0.55)')
-  g.addColorStop(0.4, 'rgba(0, 220, 200, 0.75)')
+  g.addColorStop(0.2, 'rgba(40, 90, 255, 0.35)')
+  g.addColorStop(0.42, 'rgba(0, 220, 200, 0.7)')
   g.addColorStop(0.65, 'rgba(255, 230, 0, 0.85)')
   g.addColorStop(1, 'rgba(255, 40, 30, 0.95)')
   ctx.fillStyle = g

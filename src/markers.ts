@@ -10,10 +10,14 @@ export const COLORS = {
   loot: '#5be37d',
 }
 
-/** Draws an event marker centred on (x, y) in screen pixels. Shape and colour both differ per category. */
-export function drawMarker(ctx: CanvasRenderingContext2D, category: Category, x: number, y: number, size = 6) {
+/**
+ * Draws an event marker centred on (x, y) in screen pixels. Shape and colour both differ per category.
+ * `quiet` thins the dark outline for the overview, where hundreds of markers overlap.
+ */
+export function drawMarker(ctx: CanvasRenderingContext2D, category: Category, x: number, y: number, size = 6, quiet = false) {
+  const outline = quiet ? 0.6 : 1
   ctx.save()
-  ctx.lineWidth = 2
+  ctx.lineWidth = 2 * outline
   ctx.strokeStyle = 'rgba(0, 0, 0, 0.75)'
   ctx.fillStyle = COLORS[category]
   ctx.beginPath()
@@ -21,7 +25,7 @@ export function drawMarker(ctx: CanvasRenderingContext2D, category: Category, x:
     case 'kill': {
       // crosshair: ring + ticks
       ctx.arc(x, y, size * 0.8, 0, Math.PI * 2)
-      ctx.lineWidth = 4
+      ctx.lineWidth = 2 + 2 * outline
       ctx.stroke()
       ctx.strokeStyle = COLORS.kill
       ctx.lineWidth = 2
@@ -42,7 +46,7 @@ export function drawMarker(ctx: CanvasRenderingContext2D, category: Category, x:
       ctx.moveTo(x + s, y - s)
       ctx.lineTo(x - s, y + s)
       ctx.lineCap = 'round'
-      ctx.lineWidth = 5
+      ctx.lineWidth = 2.5 + 2.5 * outline
       ctx.stroke()
       ctx.strokeStyle = COLORS.death
       ctx.lineWidth = 2.5
@@ -65,7 +69,7 @@ export function drawMarker(ctx: CanvasRenderingContext2D, category: Category, x:
       const s = size * 0.55
       ctx.rect(x - s, y - s, s * 2, s * 2)
       ctx.fill()
-      ctx.lineWidth = 1.5
+      ctx.lineWidth = 1.5 * outline
       ctx.stroke()
       break
     }

@@ -4,19 +4,20 @@ import type { HeatLayer } from './heatmap'
 import { COLORS, drawHead, drawMarker } from './markers'
 
 /** Tiny canvas that renders a marker with the exact same code the map uses. */
-export function Glyph({ category, bot }: { category?: Category; bot?: boolean }) {
+export function Glyph({ category, bot, size = 18 }: { category?: Category; bot?: boolean; size?: number }) {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
     const canvas = ref.current!
     const dpr = window.devicePixelRatio || 1
-    canvas.width = 18 * dpr
-    canvas.height = 18 * dpr
+    canvas.width = size * dpr
+    canvas.height = size * dpr
     const ctx = canvas.getContext('2d')!
     ctx.scale(dpr, dpr)
-    if (category) drawMarker(ctx, category, 9, 9, 5)
-    else drawHead(ctx, !!bot, 9, 9)
-  }, [category, bot])
-  return <canvas ref={ref} className="glyph" style={{ width: 18, height: 18 }} />
+    const c = size / 2
+    if (category) drawMarker(ctx, category, c, c, size * 0.27)
+    else drawHead(ctx, !!bot, c, c)
+  }, [category, bot, size])
+  return <canvas ref={ref} className="glyph" style={{ width: size, height: size }} />
 }
 
 export function PathSwatch({ bot }: { bot: boolean }) {
@@ -67,7 +68,7 @@ export function Legend({ events, playback, heatLayer, heatSamples, scopeLabel }:
             <span>high (relative to this selection)</span>
           </span>
           <span className="muted">
-            {heatSamples ?? 0} {heatLayer === 'traffic' ? 'position samples' : 'events'} · {scopeLabel}
+            {(heatSamples ?? 0).toLocaleString()} {heatLayer === 'traffic' ? 'position samples' : 'events'} · {scopeLabel}
           </span>
         </div>
       )}

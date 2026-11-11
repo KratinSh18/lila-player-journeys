@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CATEGORY_LABEL,
   MAP_NAMES,
@@ -14,6 +14,7 @@ import {
 import { HEAT_LAYERS, type HeatLayer } from './heatmap'
 import { Glyph, PathSwatch } from './Legend'
 import type { Layers } from './MapCanvas'
+import { COLORS } from './markers'
 
 type SortKey = 'time' | 'longest' | 'shortest' | 'kills' | 'loot'
 type OutcomeFilter = 'all' | Journey['outcome']
@@ -40,6 +41,7 @@ interface Props {
 export const OUTCOME_LABEL = { killed: 'Died', storm: 'Storm', survived: 'Survived' }
 
 export const Sidebar = memo(function Sidebar(p: Props) {
+  const listRef = useRef<HTMLUListElement>(null)
   const [sort, setSort] = useState<SortKey>('time')
   const [outcome, setOutcome] = useState<OutcomeFilter>('all')
 
@@ -54,6 +56,11 @@ export const Sidebar = memo(function Sidebar(p: Props) {
     const shown = outcome === 'all' ? p.matches : p.matches.filter((m) => humanOutcome(m) === outcome)
     return [...shown].sort((a, b) => by[sort](a) - by[sort](b))
   }, [p.matches, sort, outcome])
+
+  // Opening a match from the map or a shared link: bring its row into view.
+  useEffect(() => {
+    listRef.current?.querySelector('.match.active')?.scrollIntoView({ block: 'nearest' })
+  }, [p.selectedId, listed])
 
   const allDays = p.days.length === p.manifest.days.length
   const clickDay = (day: string) => {
@@ -82,7 +89,7 @@ export const Sidebar = memo(function Sidebar(p: Props) {
         <div className="map-picker">
           {Object.entries(p.manifest.maps).map(([id, cfg]) => (
             <button key={id} className={id === p.mapId ? 'map-card active' : 'map-card'} onClick={() => p.onMap(id)}>
-              <img src={cfg.thumb} alt="" width={64} height={64} />
+              <img src={cfg.thumb} alt="" width={48} height={48} />
               <span>{MAP_NAMES[id] ?? id}</span>
               <small>{cfg.matches} matches</small>
             </button>
@@ -105,8 +112,9 @@ export const Sidebar = memo(function Sidebar(p: Props) {
               key={day}
               className={!allDays && p.days.includes(day) ? 'chip active' : 'chip'}
               aria-pressed={!allDays && p.days.includes(day)}
+              disabled={!p.dayCounts[day]}
               onClick={() => clickDay(day)}
-              title={allDays ? 'Show only this day' : 'Add or remove this day'}
+              title={!p.dayCounts[day] ? 'No matches on this map that day' : allDays ? 'Show only this day' : 'Add or remove this day'}
             >
               {formatDay(day)}
               <small>{p.dayCounts[day] ?? 0}</small>
@@ -116,7 +124,14 @@ export const Sidebar = memo(function Sidebar(p: Props) {
       </section>
 
       <section>
-        <h2>Players</h2>
+        <h2>Show</h2>
+        <div className="pills">
+          {(Object.keys(CATEGORY_LABEL) as Category[]).map((c) => (
+            <Pill key={c} on={p.layers.events[c]} onClick={() => setEvent(c)} title={CATEGORY_LABEL[c]}>
+              <Glyph category={c} size={15} /> {c === 'storm' ? 'Storm' : CATEGORY_LABEL[c]}
+            </Pill>
+          ))}
+        </div>
         <div className="pills">
           <Pill on={p.layers.humans} onClick={() => p.onLayers({ ...p.layers, humans: !p.layers.humans })}>
             <PathSwatch bot={false} /> Humans
@@ -124,17 +139,6 @@ export const Sidebar = memo(function Sidebar(p: Props) {
           <Pill on={p.layers.bots} onClick={() => p.onLayers({ ...p.layers, bots: !p.layers.bots })}>
             <PathSwatch bot /> Bots
           </Pill>
-        </div>
-        <h2>Events</h2>
-        <div className="pills">
-          {(Object.keys(CATEGORY_LABEL) as Category[]).map((c) => (
-            <Pill key={c} on={p.layers.events[c]} onClick={() => setEvent(c)}>
-              <Glyph category={c} /> {CATEGORY_LABEL[c]}
-            </Pill>
-          ))}
-        </div>
-        <h2>Overlays</h2>
-        <div className="pills">
           <Pill
             on={p.layers.paths && !p.selectedId}
             disabled={!!p.selectedId}
@@ -184,7 +188,7 @@ export const Sidebar = memo(function Sidebar(p: Props) {
             </button>
           ))}
         </div>
-        <ul>
+        <ul ref={listRef}>
           {listed.map((m) => {
             const result = humanOutcome(m)
             return (
@@ -196,11 +200,11 @@ export const Sidebar = memo(function Sidebar(p: Props) {
                   <span className="match-len">{formatClock(m.duration)}</span>
                   <span className="match-stats">
                     <span title="Kills by the human">
-                      <i className="ico kill" />
+                      <MiniIcon kind="kill" />
                       {m.counts.kill}
                     </span>
                     <span title="Loot picked up">
-                      <i className="ico loot" />
+                      <MiniIcon kind="loot" />
                       {m.counts.loot}
                     </span>
                     {m.bots > 0 && <span className="muted">+{m.bots} bot paths</span>}
@@ -229,6 +233,22 @@ export const Sidebar = memo(function Sidebar(p: Props) {
     </aside>
   )
 })
+
+/** Tiny static versions of the map markers, cheap enough for hundreds of list rows. */
+function MiniIcon({ kind }: { kind: 'kill' | 'loot' }) {
+  return (
+    <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden className="mini-icon">
+      {kind === 'kill' ? (
+        <g stroke={COLORS.kill} strokeWidth="1.6" fill="none">
+          <circle cx="6" cy="6" r="3.4" />
+          <path d="M6 0.5v3M6 8.5v3M0.5 6h3M8.5 6h3" />
+        </g>
+      ) : (
+        <rect x="2.5" y="2.5" width="7" height="7" rx="1" fill={COLORS.loot} />
+      )}
+    </svg>
+  )
+}
 
 function Pill(props: { on: boolean; onClick: () => void; disabled?: boolean; title?: string; children: React.ReactNode }) {
   return (

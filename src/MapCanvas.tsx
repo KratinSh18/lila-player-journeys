@@ -117,14 +117,14 @@ export function MapCanvas(props: Props) {
     const sy = (y: number) => ty + y * k
     const visible = (j: Journey) => (j.bot ? p.layers.bots : p.layers.humans)
     const nextHits: Hit[] = []
-    const marker = (matchId: string, journey: Journey, e: GameEvent, size: number) => {
+    const marker = (matchId: string, journey: Journey, e: GameEvent, size: number, quiet = false) => {
       const category = CATEGORY[e[1]]
       if (!p.layers.events[category]) return
       const x = sx(e[2])
       const y = sy(e[3])
       // In the overview, bot events come from only a few dozen matches; keep them in the background.
       ctx.globalAlpha = journey.bot && !p.match ? 0.45 : 1
-      drawMarker(ctx, category, x, y, size)
+      drawMarker(ctx, category, x, y, size, quiet)
       ctx.globalAlpha = 1
       nextHits.push({ x, y, matchId, journey, event: e })
     }
@@ -157,7 +157,7 @@ export function MapCanvas(props: Props) {
           for (const j of m.journeys)
             if (visible(j)) strokePath(ctx, j.path, sx, sy, Infinity, j.bot ? COLORS.bot : COLORS.human, j.bot ? 0.12 : 0.18, j.bot, 1)
       }
-      for (const m of p.matches) for (const j of m.journeys) if (visible(j)) for (const e of j.events) marker(m.id, j, e, 3.5)
+      for (const m of p.matches) for (const j of m.journeys) if (visible(j)) for (const e of j.events) marker(m.id, j, e, 4, true)
     }
     hits.current = nextHits
   }, [image])
@@ -171,10 +171,41 @@ export function MapCanvas(props: Props) {
     view.current = { k, tx: (w - mapSize * k) / 2, ty: (h - mapSize * k) / 2 }
   }, [mapSize])
 
+  /** Zoom to the area a match actually covers (a 30 s run is a speck on the full map). */
+  const focusMatch = useCallback(
+    (m: Match) => {
+      const canvas = canvasRef.current
+      if (!canvas || !canvas.clientWidth) return
+      let x0 = Infinity
+      let y0 = Infinity
+      let x1 = -Infinity
+      let y1 = -Infinity
+      const take = (x: number, y: number) => {
+        x0 = Math.min(x0, x)
+        y0 = Math.min(y0, y)
+        x1 = Math.max(x1, x)
+        y1 = Math.max(y1, y)
+      }
+      for (const j of m.journeys) {
+        for (let k = 0; k < j.path.length; k += 3) take(j.path[k + 1], j.path[k + 2])
+        for (const e of j.events) take(e[2], e[3])
+      }
+      if (!Number.isFinite(x0)) return fit()
+      const w = canvas.clientWidth
+      const h = canvas.clientHeight
+      const pad = 90
+      const whole = (Math.min(w, h) / mapSize) * 0.96
+      const snug = Math.min((w - 2 * pad) / Math.max(x1 - x0, 1), (h - 2 * pad) / Math.max(y1 - y0, 1))
+      const k = Math.min(Math.max(snug, whole), whole * 4) // never zoom out past the whole map, nor in past 4x
+      view.current = { k, tx: w / 2 - ((x0 + x1) / 2) * k, ty: h / 2 - ((y0 + y1) / 2) * k }
+    },
+    [fit, mapSize],
+  )
+
   const drawRef = useRef(draw)
   drawRef.current = draw
   const fitRef = useRef(fit)
-  fitRef.current = fit
+  fitRef.current = () => (match ? focusMatch(match) : fit())
 
   // Keep the canvas backing store in sync with its CSS size. Only the first
   // real size fits the map; later resizes (timeline opening, window drags)
@@ -200,6 +231,12 @@ export function MapCanvas(props: Props) {
   useEffect(() => {
     fit()
   }, [config, fit])
+
+  useEffect(() => {
+    if (match) focusMatch(match)
+    else fit()
+    drawRef.current()
+  }, [match, focusMatch, fit])
 
   useEffect(draw)
 
@@ -291,7 +328,7 @@ export function MapCanvas(props: Props) {
       <div className="zoom-controls">
         <button title="Zoom in" onClick={() => zoomAt(canvasRef.current!.clientWidth / 2, canvasRef.current!.clientHeight / 2, 1.5)}>+</button>
         <button title="Zoom out" onClick={() => zoomAt(canvasRef.current!.clientWidth / 2, canvasRef.current!.clientHeight / 2, 1 / 1.5)}>−</button>
-        <button title="Fit map (double-click)" onClick={() => { fit(); draw() }}>⤢</button>
+        <button title="Show the whole map (double-click)" onClick={() => { fit(); draw() }}>⤢</button>
       </div>
 
       {hover && world && (
