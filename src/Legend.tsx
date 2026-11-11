@@ -1,0 +1,65 @@
+import { useEffect, useRef } from 'react'
+import { CATEGORY_LABEL, type Category } from './data'
+import type { HeatLayer } from './heatmap'
+import { COLORS, drawHead, drawMarker } from './markers'
+
+/** Tiny canvas that renders a marker with the exact same code the map uses. */
+export function Glyph({ category, bot }: { category?: Category; bot?: boolean }) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    const canvas = ref.current!
+    const dpr = window.devicePixelRatio || 1
+    canvas.width = 18 * dpr
+    canvas.height = 18 * dpr
+    const ctx = canvas.getContext('2d')!
+    ctx.scale(dpr, dpr)
+    if (category) drawMarker(ctx, category, 9, 9, 5)
+    else drawHead(ctx, !!bot, 9, 9)
+  }, [category, bot])
+  return <canvas ref={ref} className="glyph" style={{ width: 18, height: 18 }} />
+}
+
+export function PathSwatch({ bot }: { bot: boolean }) {
+  return (
+    <svg width="22" height="10" className="glyph" aria-hidden>
+      <line x1="1" y1="5" x2="21" y2="5" stroke={bot ? COLORS.bot : COLORS.human} strokeWidth="2.5" strokeDasharray={bot ? '5 4' : undefined} />
+    </svg>
+  )
+}
+
+interface Props {
+  events: Record<Category, boolean>
+  heatLayer: HeatLayer
+  heatSamples: number | null
+  scopeLabel: string
+}
+
+export function Legend({ events, heatLayer, heatSamples, scopeLabel }: Props) {
+  const shown = (Object.keys(events) as Category[]).filter((c) => events[c])
+  return (
+    <div className="legend">
+      <div className="legend-row">
+        <PathSwatch bot={false} /> Human
+        <PathSwatch bot /> Bot
+      </div>
+      {shown.length > 0 && (
+        <div className="legend-row">
+          {shown.map((c) => (
+            <span key={c}>
+              <Glyph category={c} /> {CATEGORY_LABEL[c]}
+            </span>
+          ))}
+        </div>
+      )}
+      {heatLayer !== 'off' && (
+        <div className="legend-heat">
+          <span>{heatLayer === 'traffic' ? 'Time spent' : CATEGORY_LABEL[heatLayer]} heatmap</span>
+          <div className="heat-ramp" />
+          <span className="muted">
+            {heatSamples ?? 0} {heatLayer === 'traffic' ? 'position samples' : 'events'} · {scopeLabel}
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
