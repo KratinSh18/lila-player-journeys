@@ -29,18 +29,25 @@ export function PathSwatch({ bot }: { bot: boolean }) {
 
 interface Props {
   events: Record<Category, boolean>
+  playback: boolean
   heatLayer: HeatLayer
   heatSamples: number | null
   scopeLabel: string
 }
 
-export function Legend({ events, heatLayer, heatSamples, scopeLabel }: Props) {
+export function Legend({ events, playback, heatLayer, heatSamples, scopeLabel }: Props) {
   const shown = (Object.keys(events) as Category[]).filter((c) => events[c])
   return (
     <div className="legend">
       <div className="legend-row">
-        <PathSwatch bot={false} /> Human
-        <PathSwatch bot /> Bot
+        <span>
+          {playback && <Glyph />}
+          <PathSwatch bot={false} /> Human
+        </span>
+        <span>
+          {playback && <Glyph bot />}
+          <PathSwatch bot /> Bot
+        </span>
       </div>
       {shown.length > 0 && (
         <div className="legend-row">
@@ -55,6 +62,10 @@ export function Legend({ events, heatLayer, heatSamples, scopeLabel }: Props) {
         <div className="legend-heat">
           <span>{heatLayer === 'traffic' ? 'Time spent' : CATEGORY_LABEL[heatLayer]} heatmap</span>
           <div className="heat-ramp" />
+          <span className="ramp-ends muted">
+            <span>low</span>
+            <span>high (relative to this selection)</span>
+          </span>
           <span className="muted">
             {heatSamples ?? 0} {heatLayer === 'traffic' ? 'position samples' : 'events'} · {scopeLabel}
           </span>

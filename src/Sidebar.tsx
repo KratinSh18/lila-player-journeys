@@ -3,17 +3,20 @@ import {
   CATEGORY_LABEL,
   MAP_NAMES,
   type Category,
+  type Journey,
   type Manifest,
   type Match,
   formatClock,
   formatDay,
   formatStart,
+  humanOutcome,
 } from './data'
 import { HEAT_LAYERS, type HeatLayer } from './heatmap'
 import { Glyph, PathSwatch } from './Legend'
 import type { Layers } from './MapCanvas'
 
-type SortKey = 'time' | 'duration' | 'kills' | 'loot'
+type SortKey = 'time' | 'longest' | 'shortest' | 'kills' | 'loot'
+type OutcomeFilter = 'all' | Journey['outcome']
 
 interface Props {
   manifest: Manifest
@@ -34,42 +37,54 @@ interface Props {
   onSelect: (id: string | null) => void
 }
 
-const OUTCOME_LABEL = { killed: 'Died', storm: 'Storm', survived: 'Survived' }
+export const OUTCOME_LABEL = { killed: 'Died', storm: 'Storm', survived: 'Survived' }
 
 export const Sidebar = memo(function Sidebar(p: Props) {
   const [sort, setSort] = useState<SortKey>('time')
+  const [outcome, setOutcome] = useState<OutcomeFilter>('all')
 
-  const sorted = useMemo(() => {
+  const listed = useMemo(() => {
     const by: Record<SortKey, (m: Match) => number> = {
       time: (m) => -m.startedAt,
-      duration: (m) => -m.duration,
+      longest: (m) => -m.duration,
+      shortest: (m) => m.duration,
       kills: (m) => -m.counts.kill,
       loot: (m) => -m.counts.loot,
     }
-    return [...p.matches].sort((a, b) => by[sort](a) - by[sort](b))
-  }, [p.matches, sort])
+    const shown = outcome === 'all' ? p.matches : p.matches.filter((m) => humanOutcome(m) === outcome)
+    return [...shown].sort((a, b) => by[sort](a) - by[sort](b))
+  }, [p.matches, sort, outcome])
 
-  const toggleDay = (day: string) => {
+  const allDays = p.days.length === p.manifest.days.length
+  const clickDay = (day: string) => {
+    if (allDays) return p.onDays([day]) // first click narrows to that day
     const next = p.days.includes(day) ? p.days.filter((d) => d !== day) : [...p.days, day].sort()
     p.onDays(next.length ? next : p.manifest.days) // an empty filter would just show nothing
   }
-  const setEvent = (c: Category, on: boolean) => p.onLayers({ ...p.layers, events: { ...p.layers.events, [c]: on } })
-  const allDays = p.days.length === p.manifest.days.length
+  const setEvent = (c: Category) => p.onLayers({ ...p.layers, events: { ...p.layers.events, [c]: !p.layers.events[c] } })
 
   return (
     <aside className="sidebar">
       <header className="brand">
-        <h1>LILA BLACK</h1>
-        <span>Player Journeys</span>
+        <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden>
+          <rect width="32" height="32" rx="7" fill="#1c232b" />
+          <path d="M6 24 L13 12 L19 18 L26 7" stroke="#53d1f0" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="26" cy="7" r="3" fill="#ff4d5a" />
+        </svg>
+        <div>
+          <h1>LILA BLACK</h1>
+          <span>Player Journeys</span>
+        </div>
       </header>
 
       <section>
         <h2>Map</h2>
-        <div className="segmented">
+        <div className="map-picker">
           {Object.entries(p.manifest.maps).map(([id, cfg]) => (
-            <button key={id} className={id === p.mapId ? 'active' : ''} onClick={() => p.onMap(id)}>
-              {MAP_NAMES[id] ?? id}
-              <small>{cfg.matches}</small>
+            <button key={id} className={id === p.mapId ? 'map-card active' : 'map-card'} onClick={() => p.onMap(id)}>
+              <img src={cfg.thumb} alt="" width={64} height={64} />
+              <span>{MAP_NAMES[id] ?? id}</span>
+              <small>{cfg.matches} matches</small>
             </button>
           ))}
         </div>
@@ -77,10 +92,10 @@ export const Sidebar = memo(function Sidebar(p: Props) {
 
       <section>
         <h2>
-          Dates <span className="muted">(UTC)</span>
+          Dates <span className="muted">UTC</span>
           {!allDays && (
             <button className="link" onClick={() => p.onDays(p.manifest.days)}>
-              all
+              Show all
             </button>
           )}
         </h2>
@@ -88,9 +103,10 @@ export const Sidebar = memo(function Sidebar(p: Props) {
           {p.manifest.days.map((day) => (
             <button
               key={day}
-              className={allDays ? 'chip' : p.days.includes(day) ? 'chip active' : 'chip'}
-              onClick={() => (allDays ? p.onDays([day]) : toggleDay(day))}
-              title={allDays ? 'Show only this day' : 'Toggle this day'}
+              className={!allDays && p.days.includes(day) ? 'chip active' : 'chip'}
+              aria-pressed={!allDays && p.days.includes(day)}
+              onClick={() => clickDay(day)}
+              title={allDays ? 'Show only this day' : 'Add or remove this day'}
             >
               {formatDay(day)}
               <small>{p.dayCounts[day] ?? 0}</small>
@@ -100,31 +116,42 @@ export const Sidebar = memo(function Sidebar(p: Props) {
       </section>
 
       <section>
-        <h2>Show</h2>
-        <div className="toggles">
-          <Toggle on={p.layers.humans} onChange={(humans) => p.onLayers({ ...p.layers, humans })}>
+        <h2>Players</h2>
+        <div className="pills">
+          <Pill on={p.layers.humans} onClick={() => p.onLayers({ ...p.layers, humans: !p.layers.humans })}>
             <PathSwatch bot={false} /> Humans
-          </Toggle>
-          <Toggle on={p.layers.bots} onChange={(bots) => p.onLayers({ ...p.layers, bots })}>
+          </Pill>
+          <Pill on={p.layers.bots} onClick={() => p.onLayers({ ...p.layers, bots: !p.layers.bots })}>
             <PathSwatch bot /> Bots
-          </Toggle>
+          </Pill>
+        </div>
+        <h2>Events</h2>
+        <div className="pills">
           {(Object.keys(CATEGORY_LABEL) as Category[]).map((c) => (
-            <Toggle key={c} on={p.layers.events[c]} onChange={(on) => setEvent(c, on)}>
+            <Pill key={c} on={p.layers.events[c]} onClick={() => setEvent(c)}>
               <Glyph category={c} /> {CATEGORY_LABEL[c]}
-            </Toggle>
+            </Pill>
           ))}
-          <Toggle on={p.layers.paths} onChange={(paths) => p.onLayers({ ...p.layers, paths })} disabled={!!p.selectedId}>
-            All paths <span className="muted">(overview)</span>
-          </Toggle>
-          <Toggle on={p.layers.grid} onChange={(grid) => p.onLayers({ ...p.layers, grid })}>
-            Grid A–J / 1–10
-          </Toggle>
+        </div>
+        <h2>Overlays</h2>
+        <div className="pills">
+          <Pill
+            on={p.layers.paths && !p.selectedId}
+            disabled={!!p.selectedId}
+            onClick={() => p.onLayers({ ...p.layers, paths: !p.layers.paths })}
+            title={p.selectedId ? 'Only in the overview' : 'Draw every journey that passes the filters'}
+          >
+            All paths
+          </Pill>
+          <Pill on={p.layers.grid} onClick={() => p.onLayers({ ...p.layers, grid: !p.layers.grid })} title="Grid A–J / 1–10 for referring to places">
+            Grid
+          </Pill>
         </div>
       </section>
 
       <section>
         <h2>Heatmap</h2>
-        <div className="segmented small">
+        <div className="segmented">
           {HEAT_LAYERS.map((l) => (
             <button key={l.id} className={l.id === p.heatLayer ? 'active' : ''} onClick={() => p.onHeatLayer(l.id)}>
               {l.label}
@@ -141,65 +168,72 @@ export const Sidebar = memo(function Sidebar(p: Props) {
 
       <section className="matches">
         <h2>
-          Matches <span className="muted">{p.loading ? 'loading…' : p.matches.length}</span>
+          Matches <span className="count">{p.loading ? '…' : listed.length}</span>
           <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="Sort matches">
             <option value="time">Newest</option>
-            <option value="duration">Longest</option>
+            <option value="longest">Longest</option>
+            <option value="shortest">Shortest</option>
             <option value="kills">Most kills</option>
             <option value="loot">Most loot</option>
           </select>
         </h2>
-        {p.selectedId && (
-          <button className="back" onClick={() => p.onSelect(null)}>
-            ← Back to overview of all matches
-          </button>
-        )}
+        <div className="segmented outcome">
+          {(['all', 'killed', 'storm', 'survived'] as const).map((o) => (
+            <button key={o} className={o === outcome ? 'active' : ''} onClick={() => setOutcome(o)}>
+              {o === 'all' ? 'All' : OUTCOME_LABEL[o]}
+            </button>
+          ))}
+        </div>
         <ul>
-          {sorted.map((m) => {
-            const human = m.journeys.find((j) => !j.bot)
+          {listed.map((m) => {
+            const result = humanOutcome(m)
             return (
               <li key={m.id}>
-                <button className={m.id === p.selectedId ? 'match active' : 'match'} onClick={() => p.onSelect(m.id)}>
-                  <div className="match-top">
-                    <span>
-                      {formatDay(m.day)} · {formatStart(m.startedAt)}
+                <button className={`match ${result ?? ''}${m.id === p.selectedId ? ' active' : ''}`} onClick={() => p.onSelect(m.id)}>
+                  <span className="match-when">
+                    {formatStart(m.startedAt)} <small>{formatDay(m.day)}</small>
+                  </span>
+                  <span className="match-len">{formatClock(m.duration)}</span>
+                  <span className="match-stats">
+                    <span title="Kills by the human">
+                      <i className="ico kill" />
+                      {m.counts.kill}
                     </span>
-                    <span className="muted">{formatClock(m.duration)}</span>
-                  </div>
-                  <div className="match-bottom">
-                    <span className="muted">
-                      {m.humans}H{m.bots ? ` + ${m.bots}B` : ''}
+                    <span title="Loot picked up">
+                      <i className="ico loot" />
+                      {m.counts.loot}
                     </span>
-                    <span>{m.counts.kill} kills</span>
-                    <span>{m.counts.loot} loot</span>
-                    {human && <span className={`badge ${human.outcome}`}>{OUTCOME_LABEL[human.outcome]}</span>}
-                  </div>
+                    {m.bots > 0 && <span className="muted">+{m.bots} bot paths</span>}
+                  </span>
+                  {result && <span className={`badge ${result}`}>{OUTCOME_LABEL[result]}</span>}
                 </button>
               </li>
             )
           })}
+          {!p.loading && listed.length === 0 && <li className="empty">No matches for these filters.</li>}
         </ul>
       </section>
 
       <details className="notes">
         <summary>About this data</summary>
         <ul>
-          <li>{p.manifest.stats.files} files, {p.manifest.stats.rows.toLocaleString()} rows, {p.manifest.stats.matches} matches.</li>
-          <li>Timestamps are stored as Unix seconds (typed as ms in parquet); playback time is seconds since the match's first event.</li>
-          <li>{p.manifest.stats.reclassifiedJourneys} journeys with numeric ids are treated as humans because they emit human-only events.</li>
-          <li>Most matches only include one human's file; bot journeys exist for a small subset of matches. Counts in the list are the human's events.</li>
-          <li>"Survived" means no death was recorded; the data has no explicit extraction event.</li>
+          <li>
+            {p.manifest.stats.files.toLocaleString()} files, {p.manifest.stats.rows.toLocaleString()} rows, {p.manifest.stats.matches} matches.
+          </li>
+          <li>Timestamps are Unix seconds (stored with a millisecond type). Playback time counts from the match's first event.</li>
+          <li>{p.manifest.stats.reclassifiedJourneys} files with numeric (bot-style) ids are treated as humans because they move and loot like players. They may be test or autoplay accounts.</li>
+          <li>Most matches only include one human's file, and bot paths exist for about 50 matches, so the overview hides bots until you turn them on. Counts in this list are the human's events.</li>
+          <li>"Survived" means no death was recorded. There is no explicit extraction event in the data.</li>
         </ul>
       </details>
     </aside>
   )
 })
 
-function Toggle({ on, onChange, disabled, children }: { on: boolean; onChange: (on: boolean) => void; disabled?: boolean; children: React.ReactNode }) {
+function Pill(props: { on: boolean; onClick: () => void; disabled?: boolean; title?: string; children: React.ReactNode }) {
   return (
-    <label className={disabled ? 'toggle disabled' : 'toggle'}>
-      <input type="checkbox" checked={on} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
-      {children}
-    </label>
+    <button type="button" className={props.on ? 'pill on' : 'pill'} aria-pressed={props.on} disabled={props.disabled} onClick={props.onClick} title={props.title}>
+      {props.children}
+    </button>
   )
 }

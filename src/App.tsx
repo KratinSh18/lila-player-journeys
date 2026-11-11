@@ -1,27 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  MAP_NAMES,
-  type Manifest,
-  type Match,
-  formatClock,
-  formatDay,
-  formatStart,
-  loadManifest,
-  loadMatches,
-  shortId,
-} from './data'
+import { MAP_NAMES, type Manifest, type Match, formatDay, loadManifest, loadMatches } from './data'
 import { buildHeatmap, type HeatLayer } from './heatmap'
 import { Legend } from './Legend'
 import { MapCanvas, type Layers } from './MapCanvas'
 import { Sidebar } from './Sidebar'
 import { Timeline } from './Timeline'
+import { TopBar } from './TopBar'
 
 // Map, match and time live in the URL hash so a designer can paste a link to a specific moment.
 const initialUrl = new URLSearchParams(window.location.hash.slice(1))
 
-const DEFAULT_LAYERS: Layers = {
+const DEFAULT_LAYERS: Omit<Layers, 'bots'> = {
   humans: true,
-  bots: true,
   // The traffic heatmap already shows where people go; 800 overlapping paths
   // are better as an opt-in. Same for loot, which is ~13k markers.
   paths: false,
@@ -35,9 +25,13 @@ export default function App() {
   const [mapId, setMapId] = useState(initialUrl.get('map') ?? 'AmbroseValley')
   const [mapMatches, setMapMatches] = useState<{ mapId: string; matches: Match[] } | null>(null)
   const [days, setDays] = useState<string[]>([])
-  const [layers, setLayers] = useState<Layers>(DEFAULT_LAYERS)
-  // Separate heatmap choice for the overview and for a single match: under one
-  // match's path a traffic heatmap is mostly noise, so it starts off there.
+  const [baseLayers, setBaseLayers] = useState(DEFAULT_LAYERS)
+  // Two settings differ between the overview and a single match, so each mode
+  // keeps its own. Bot paths exist for only ~50 of 796 matches, which would
+  // skew the overview's heatmaps, so bots start hidden there and shown in a
+  // match. A traffic heatmap under one match's path is mostly noise, so it
+  // starts off in a match.
+  const [botsByMode, setBotsByMode] = useState({ overview: false, match: true })
   const [heatByMode, setHeatByMode] = useState<{ overview: HeatLayer; match: HeatLayer }>({ overview: 'traffic', match: 'off' })
   const [heatOpacity, setHeatOpacity] = useState(0.65)
   const [selectedId, setSelectedId] = useState<string | null>(initialUrl.get('match'))
@@ -45,6 +39,7 @@ export default function App() {
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState(10)
   const timeRef = useRef(time)
+  const stopAt = useRef<number | null>(null) // set when replaying up to a clicked event
 
   useEffect(() => {
     loadManifest()
@@ -75,21 +70,35 @@ export default function App() {
     return counts
   }, [allMatches])
   const match = useMemo(() => allMatches.find((m) => m.id === selectedId) ?? null, [allMatches, selectedId])
-  const heatLayer = heatByMode[match ? 'match' : 'overview']
-  const setHeatLayer = useCallback(
-    (layer: HeatLayer) => setHeatByMode((prev) => ({ ...prev, [match ? 'match' : 'overview']: layer })),
-    [match],
+  const mode = match ? 'match' : 'overview'
+  const layers: Layers = useMemo(() => ({ ...baseLayers, bots: botsByMode[mode] }), [baseLayers, botsByMode, mode])
+  const setLayers = useCallback(
+    ({ bots, ...rest }: Layers) => {
+      setBaseLayers(rest)
+      setBotsByMode((prev) => ({ ...prev, [mode]: bots }))
+    },
+    [mode],
   )
+  const heatLayer = heatByMode[mode]
+  const setHeatLayer = useCallback((layer: HeatLayer) => setHeatByMode((prev) => ({ ...prev, [mode]: layer })), [mode])
 
   const heat = useMemo(() => {
     if (heatLayer === 'off' || !manifest) return null
     return buildHeatmap(matches, heatLayer, { humans: layers.humans, bots: layers.bots }, manifest.mapSize)
   }, [matches, heatLayer, layers.humans, layers.bots, manifest])
 
-  const seek = useCallback((t: number) => {
+  const setClock = useCallback((t: number) => {
     timeRef.current = t
     setTime(t)
   }, [])
+  // A user-driven jump. It cancels any "stop at the clicked event".
+  const seek = useCallback(
+    (t: number) => {
+      stopAt.current = null
+      setClock(t)
+    },
+    [setClock],
+  )
 
   // A shared link without ?t= should open on the finished match, same as clicking it in the list.
   const pendingLinkMatch = useRef(selectedId !== null && !initialUrl.has('t'))
@@ -106,18 +115,22 @@ export default function App() {
     let last = performance.now()
     let frame = 0
     const tick = (now: number) => {
-      const next = Math.min(match.duration, timeRef.current + ((now - last) / 1000) * speed)
+      const end = Math.min(match.duration, stopAt.current ?? Infinity)
+      const next = Math.min(end, timeRef.current + ((now - last) / 1000) * speed)
       last = now
-      seek(next)
-      if (next >= match.duration) setPlaying(false)
-      else frame = requestAnimationFrame(tick)
+      setClock(next)
+      if (next >= end) {
+        stopAt.current = null
+        setPlaying(false)
+      } else frame = requestAnimationFrame(tick)
     }
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
-  }, [playing, speed, match, seek])
+  }, [playing, speed, match, setClock])
 
   const togglePlay = useCallback(() => {
     if (!match) return
+    stopAt.current = null
     if (!playing && timeRef.current >= match.duration) seek(0)
     setPlaying(!playing)
   }, [match, playing, seek])
@@ -135,14 +148,16 @@ export default function App() {
 
   const openEvent = useCallback(
     (id: string, t: number) => {
+      pendingLinkMatch.current = false
       if (id === selectedId) {
         setPlaying(false)
         seek(t)
         return
       }
-      // From the overview: open that match a little before the event and let it play into it.
+      // From the overview: open that match 20 s before the event, play up to it and pause there.
       setSelectedId(id)
       seek(Math.max(0, t - 20))
+      stopAt.current = t
       setPlaying(true)
     },
     [selectedId, seek],
@@ -151,6 +166,7 @@ export default function App() {
   const changeMap = useCallback(
     (id: string) => {
       if (id === mapId) return
+      pendingLinkMatch.current = false
       setMapId(id)
       setSelectedId(null)
       setPlaying(false)
@@ -158,19 +174,26 @@ export default function App() {
     [mapId],
   )
 
-  useEffect(() => {
+  const shareUrl = useMemo(() => {
     const params = new URLSearchParams({ map: mapId })
-    if (match) {
-      params.set('match', match.id)
-      if (!playing) params.set('t', String(Math.round(time)))
+    if (selectedId) {
+      params.set('match', selectedId)
+      params.set('t', String(Math.round(time)))
     }
-    if (!playing) window.history.replaceState(null, '', `#${params}`)
-  }, [mapId, match, time, playing])
+    return `#${params}`
+  }, [mapId, selectedId, time])
+
+  // Mirror state into the address bar, but not 60 times a second during playback.
+  useEffect(() => {
+    if (!playing && window.location.hash !== shareUrl) window.history.replaceState(null, '', shareUrl)
+  }, [shareUrl, playing])
 
   // Keyboard: space = play/pause, arrows = step 5s, escape = back to overview
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!match || (e.target as HTMLElement).closest('input, select, textarea')) return
+      const el = e.target as HTMLElement
+      // The timeline's own slider and speed menu keep focus after use; the shortcuts should still work there.
+      if (!match || (el.closest('input, select, textarea') && !el.closest('.timeline'))) return
       if (e.key === ' ') {
         e.preventDefault()
         togglePlay()
@@ -191,11 +214,9 @@ export default function App() {
   const config = manifest.maps[mapId]
   const dayLabel =
     days.length === manifest.days.length
-      ? 'all days'
-      : days.length === 1
-        ? formatDay(days[0])
-        : `${days.length} days`
-  const human = match?.journeys.find((j) => !j.bot)
+      ? `${formatDay(manifest.days[0])} – ${formatDay(manifest.days[manifest.days.length - 1])}`
+      : days.map(formatDay).join(', ')
+  const scope = `${dayLabel} · ${layers.humans && layers.bots ? 'humans and bots' : layers.humans ? 'humans only' : layers.bots ? 'bots only' : 'no players shown'}`
 
   return (
     <div className="app">
@@ -219,50 +240,35 @@ export default function App() {
       />
 
       <main>
-        <div className="topbar">
-          {match ? (
-            <>
-              <button className="back" onClick={() => selectMatch(null)} title="Back to overview (Esc)">
-                ←
-              </button>
-              <div>
-                <strong>Match {shortId(match.id)}</strong>
-                <span className="muted">
-                  {' '}
-                  · {MAP_NAMES[mapId]} · {formatDay(match.day)} {formatStart(match.startedAt)} UTC · {formatClock(match.duration)} ·{' '}
-                  {match.humans} human{match.humans === 1 ? '' : 's'}, {match.bots} bot journey{match.bots === 1 ? '' : 's'}
-                  {human && ` · human ${human.outcome === 'survived' ? 'survived' : human.outcome === 'storm' ? 'died to storm' : 'was killed'}`}
-                </span>
-              </div>
-              <button className="ghost" onClick={() => navigator.clipboard?.writeText(window.location.href)} title="Copy a link to this match and moment">
-                Copy link
-              </button>
-            </>
-          ) : (
-            <div>
-              <strong>{MAP_NAMES[mapId]}</strong>
-              <span className="muted">
-                {' '}
-                · {matches.length} matches · {dayLabel} · hover a marker for details, click it to replay that match
-              </span>
-            </div>
-          )}
-        </div>
+        <TopBar
+          mapName={MAP_NAMES[mapId] ?? mapId}
+          scope={scope}
+          matches={matches}
+          match={match}
+          shareUrl={window.location.origin + window.location.pathname + shareUrl}
+          onBack={() => selectMatch(null)}
+        />
 
         <div className="stage">
           <MapCanvas
-          config={config}
-          mapSize={manifest.mapSize}
-          matches={matches}
-          match={match}
-          time={time}
-          layers={layers}
-          heat={heat}
-          heatOpacity={heatOpacity}
-          onOpenEvent={openEvent}
-        />
-
-          <Legend events={layers.events} heatLayer={heatLayer} heatSamples={heat?.samples ?? null} scopeLabel={`${matches.length} matches, ${dayLabel}`} />
+            config={config}
+            mapSize={manifest.mapSize}
+            matches={matches}
+            match={match}
+            time={time}
+            layers={layers}
+            heat={heat}
+            heatOpacity={heatOpacity}
+            onOpenEvent={openEvent}
+          />
+          <Legend
+            events={layers.events}
+            playback={!!match}
+            heatLayer={heatLayer}
+            heatSamples={heat?.samples ?? null}
+            scopeLabel={`${matches.length} matches, ${dayLabel}, ${layers.humans && layers.bots ? 'humans + bots' : layers.bots ? 'bots' : 'humans'}`}
+          />
+          {!match && <FirstRunTip />}
         </div>
 
         {match && (
@@ -280,6 +286,39 @@ export default function App() {
           />
         )}
       </main>
+    </div>
+  )
+}
+
+const TIP_KEY = 'lila-journeys-tip-dismissed'
+
+/** A short "how to use this" card, shown until someone closes it. */
+function FirstRunTip() {
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(TIP_KEY) !== '1'
+    } catch {
+      return true
+    }
+  })
+  if (!open) return null
+  const close = () => {
+    setOpen(false)
+    try {
+      localStorage.setItem(TIP_KEY, '1')
+    } catch {
+      // private mode etc. The tip just comes back next visit.
+    }
+  }
+  return (
+    <div className="tip">
+      <strong>Reading the map</strong>
+      <ol>
+        <li>The heatmap shows where players spend their time. Switch it to Kills or Deaths on the left.</li>
+        <li>Hover any marker to see who, when and where. Click it to replay that match from just before.</li>
+        <li>Pick a match from the list to watch it play out. Scroll to zoom, drag to pan.</li>
+      </ol>
+      <button onClick={close}>Got it</button>
     </div>
   )
 }

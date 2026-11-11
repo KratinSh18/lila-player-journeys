@@ -31,6 +31,7 @@ export interface MapConfig {
   originX: number
   originZ: number
   image: string
+  thumb: string
   matches: number
 }
 
@@ -119,7 +120,17 @@ export function formatStart(unixSeconds: number) {
 
 export const shortId = (id: string) => (/^\d+$/.test(id) ? id : id.slice(0, 8))
 
-/** Position of a journey at time t, linearly interpolated between samples. null if not alive at t. */
+/** How the human's run ended. With two humans, a death wins over "survived". */
+export function humanOutcome(match: Match): Journey['outcome'] | null {
+  const humans = match.journeys.filter((j) => !j.bot)
+  return humans.find((j) => j.outcome !== 'survived')?.outcome ?? humans[0]?.outcome ?? null
+}
+
+// Positions are logged every 5 s while a player moves and not at all while
+// they stand still, so a longer gap between samples means "waited, then moved".
+const SAMPLE_SECONDS = 5
+
+/** Position of a journey at time t, between its first and last sample. null outside that range. */
 export function positionAt(path: number[], t: number): [number, number] | null {
   const n = path.length / 3
   if (n === 0 || t < path[0] || t > path[(n - 1) * 3]) return null
@@ -135,6 +146,7 @@ export function positionAt(path: number[], t: number): [number, number] | null {
   if (lo === n - 1) return [path[i + 1], path[i + 2]]
   const t0 = path[i]
   const t1 = path[i + 3]
-  const f = t1 === t0 ? 0 : (t - t0) / (t1 - t0)
+  const moveFrom = Math.max(t0, t1 - SAMPLE_SECONDS) // hold still through a long gap
+  const f = t <= moveFrom ? 0 : (t - moveFrom) / (t1 - moveFrom)
   return [path[i + 1] + (path[i + 4] - path[i + 1]) * f, path[i + 2] + (path[i + 5] - path[i + 2]) * f]
 }

@@ -61,17 +61,30 @@ export function MapCanvas(props: Props) {
   const latest = useRef(props)
   latest.current = props
   const [image, setImage] = useState<HTMLImageElement | null>(null)
+  const [imageFailed, setImageFailed] = useState(false)
   const [hover, setHover] = useState<{ hit: Hit; x: number; y: number } | null>(null)
 
   useEffect(() => {
     const src = config.image
     const cached = imageCache.get(src)
-    if (cached?.complete) return setImage(cached)
+    if (cached?.complete && cached.naturalWidth > 0) {
+      setImage(cached)
+      return
+    }
+    let live = true // ignore a slow load that finishes after the map was switched
     setImage(null)
-    const img = cached ?? new Image()
-    img.onload = () => setImage(img)
+    setImageFailed(false)
+    const img = new Image()
+    img.onload = () => live && setImage(img)
+    img.onerror = () => {
+      imageCache.delete(src)
+      if (live) setImageFailed(true)
+    }
     img.src = src
     imageCache.set(src, img)
+    return () => {
+      live = false
+    }
   }, [config.image])
 
   const draw = useCallback(() => {
@@ -80,11 +93,10 @@ export function MapCanvas(props: Props) {
     const ctx = canvas.getContext('2d')!
     const { k, tx, ty } = view.current
     const p = latest.current
-    const dpr = window.devicePixelRatio || 1
-    const w = canvas.width / dpr
-    const h = canvas.height / dpr
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.clearRect(0, 0, w, h)
+    // Scale from the actual backing store, so a DPR change between resizes can't skew the transform.
+    const scale = canvas.clientWidth ? canvas.width / canvas.clientWidth : 1
+    ctx.setTransform(scale, 0, 0, scale, 0, 0)
+    ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight)
 
     // Map-space layers: image, heatmap, grid
     ctx.save()
@@ -110,7 +122,10 @@ export function MapCanvas(props: Props) {
       if (!p.layers.events[category]) return
       const x = sx(e[2])
       const y = sy(e[3])
+      // In the overview, bot events come from only a few dozen matches; keep them in the background.
+      ctx.globalAlpha = journey.bot && !p.match ? 0.45 : 1
       drawMarker(ctx, category, x, y, size)
+      ctx.globalAlpha = 1
       nextHits.push({ x, y, matchId, journey, event: e })
     }
 
@@ -126,7 +141,13 @@ export function MapCanvas(props: Props) {
       }
       for (const j of journeys) for (const e of j.events) if (e[0] <= t) marker(p.match.id, j, e, 7)
       for (const j of journeys) {
-        const pos = positionAt(j.path, t)
+        if (!j.path.length) continue
+        // Stay on screen until the journey's last row (loot can come after the last
+        // position), and step aside at the moment of death so the X marker shows.
+        const lastSample = j.path[j.path.length - 3]
+        const death = j.events.find((e) => CATEGORY[e[1]] === 'death' || CATEGORY[e[1]] === 'storm')
+        const end = death ? death[0] - 0.01 : Math.max(lastSample, j.events.at(-1)?.[0] ?? 0)
+        const pos = t <= end ? positionAt(j.path, Math.min(t, lastSample)) : null
         if (pos) drawHead(ctx, j.bot, sx(pos[0]), sy(pos[1]))
       }
     } else {
@@ -134,7 +155,7 @@ export function MapCanvas(props: Props) {
         // Hundreds of journeys at once: keep each one faint so overlaps build up into corridors.
         for (const m of p.matches)
           for (const j of m.journeys)
-            if (visible(j)) strokePath(ctx, j.path, sx, sy, Infinity, j.bot ? COLORS.bot : COLORS.human, j.bot ? 0.12 : 0.18, false, 1)
+            if (visible(j)) strokePath(ctx, j.path, sx, sy, Infinity, j.bot ? COLORS.bot : COLORS.human, j.bot ? 0.12 : 0.18, j.bot, 1)
       }
       for (const m of p.matches) for (const j of m.journeys) if (visible(j)) for (const e of j.events) marker(m.id, j, e, 3.5)
     }
@@ -144,36 +165,48 @@ export function MapCanvas(props: Props) {
   const fit = useCallback(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const dpr = window.devicePixelRatio || 1
-    const w = canvas.width / dpr
-    const h = canvas.height / dpr
+    const w = canvas.clientWidth
+    const h = canvas.clientHeight
     const k = (Math.min(w, h) / mapSize) * 0.96
     view.current = { k, tx: (w - mapSize * k) / 2, ty: (h - mapSize * k) / 2 }
   }, [mapSize])
 
-  // Keep the canvas backing store in sync with its CSS size.
+  const drawRef = useRef(draw)
+  drawRef.current = draw
+  const fitRef = useRef(fit)
+  fitRef.current = fit
+
+  // Keep the canvas backing store in sync with its CSS size. Only the first
+  // real size fits the map; later resizes (timeline opening, window drags)
+  // keep whatever zoom the user had.
   useLayoutEffect(() => {
     const wrap = wrapRef.current!
     const canvas = canvasRef.current!
+    let sized = false
     const observer = new ResizeObserver(() => {
       const dpr = window.devicePixelRatio || 1
       canvas.width = Math.round(wrap.clientWidth * dpr)
       canvas.height = Math.round(wrap.clientHeight * dpr)
-      fit()
-      draw()
+      if (!sized && wrap.clientWidth > 0) {
+        sized = true
+        fitRef.current()
+      }
+      drawRef.current()
     })
     observer.observe(wrap)
     return () => observer.disconnect()
-  }, [fit, draw])
+  }, [])
 
   useEffect(() => {
     fit()
   }, [config, fit])
 
-  // A tooltip from the previous match/filter would point at a marker that's gone.
-  useEffect(() => setHover(null), [match, props.matches])
-
   useEffect(draw)
+
+  // Drop the tooltip once its marker isn't drawn any more (new filter, other match, seeked back).
+  useEffect(() => {
+    if (hover && !hits.current.some((h) => h.event === hover.hit.event)) setHover(null)
+  })
 
   // Wheel zoom has to be a non-passive listener so it can stop the page from scrolling.
   useEffect(() => {
@@ -227,10 +260,14 @@ export function MapCanvas(props: Props) {
     setHover((prev) => (hit === prev?.hit ? prev : hit ? { hit, x, y } : null))
   }
 
-  const onPointerUp = () => {
+  const onPointerUp = (e: React.PointerEvent) => {
     const wasClick = drag.current && !drag.current.moved
     drag.current = null
-    if (wasClick && hover) props.onOpenEvent(hover.hit.matchId, hover.hit.event[0])
+    if (!wasClick) return
+    // Hit-test where the pointer was released: a touch tap has no hover beforehand.
+    const rect = e.currentTarget.getBoundingClientRect()
+    const hit = nearestHit(hits.current, e.clientX - rect.left, e.clientY - rect.top, e.pointerType === 'touch' ? 18 : 10)
+    if (hit) props.onOpenEvent(hit.matchId, hit.event[0])
   }
 
   const world = hover ? mapToWorld(hover.hit.event[2], hover.hit.event[3], config, mapSize) : null
@@ -249,7 +286,7 @@ export function MapCanvas(props: Props) {
         }}
         style={{ cursor: hover ? 'pointer' : drag.current?.moved ? 'grabbing' : 'grab' }}
       />
-      {!image && <div className="map-loading">Loading minimap…</div>}
+      {!image && <div className="map-loading">{imageFailed ? "Couldn't load the minimap. Try reloading." : 'Loading minimap…'}</div>}
 
       <div className="zoom-controls">
         <button title="Zoom in" onClick={() => zoomAt(canvasRef.current!.clientWidth / 2, canvasRef.current!.clientHeight / 2, 1.5)}>+</button>

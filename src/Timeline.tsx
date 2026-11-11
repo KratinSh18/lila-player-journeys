@@ -1,4 +1,4 @@
-import { CATEGORY, type Match, formatClock } from './data'
+import { CATEGORY, CATEGORY_LABEL, type Match, formatClock } from './data'
 import { COLORS } from './markers'
 
 export const SPEEDS = [1, 5, 10, 20, 40]
@@ -22,20 +22,24 @@ export function Timeline({ match, time, playing, speed, onSeek, onTogglePlay, on
 
   return (
     <div className="timeline">
-      <button className="play" onClick={onTogglePlay} title="Play / pause (space)">
-        {playing ? '❚❚' : '▶'}
+      <button className="play" onClick={onTogglePlay} title="Play / pause (space)" aria-label={playing ? 'Pause' : 'Play'}>
+        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+          {playing ? <path d="M3 2h3v10H3zM8 2h3v10H8z" fill="currentColor" /> : <path d="M3 1.5v11l9.5-5.5z" fill="currentColor" />}
+        </svg>
       </button>
       <span className="clock">
         {formatClock(time)} <span className="muted">/ {formatClock(match.duration)}</span>
       </span>
-      <div className="scrubber">
+      <div className="scrubber" style={{ '--progress': `${(Math.min(time, duration) / duration) * 100}%` } as React.CSSProperties}>
         <div className="ticks">
           {ticks.map((tick, i) => (
-            <span
+            <button
               key={i}
               className={tick.bot ? 'tick bot' : 'tick'}
               style={{ left: `${(tick.t / duration) * 100}%`, background: COLORS[tick.category] }}
-              title={`${tick.category} at ${formatClock(tick.t)}`}
+              title={`${tick.bot ? 'Bot' : 'Human'}: ${CATEGORY_LABEL[tick.category].replace(/s$/, '').toLowerCase()} at ${formatClock(tick.t)}`}
+              aria-label={`Jump to ${formatClock(tick.t)}`}
+              onClick={() => onSeek(tick.t)}
             />
           ))}
         </div>

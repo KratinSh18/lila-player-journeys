@@ -29,11 +29,11 @@ export function buildHeatmap(
   const grid = new Float32Array(BINS * BINS)
   const toBin = BINS / mapSize
   let samples = 0
-  const add = (x: number, y: number) => {
+  const add = (x: number, y: number, weight = 1) => {
     const i = Math.floor(x * toBin)
     const j = Math.floor(y * toBin)
     if (i < 0 || j < 0 || i >= BINS || j >= BINS) return
-    grid[j * BINS + i] += 1
+    grid[j * BINS + i] += weight
     samples++
   }
 
@@ -41,8 +41,15 @@ export function buildHeatmap(
     for (const journey of match.journeys) {
       if (journey.bot ? !include.bots : !include.humans) continue
       if (layer === 'traffic') {
-        // samples are ~5s apart, so the count is proportional to time spent there
-        for (let k = 0; k < journey.path.length; k += 3) add(journey.path[k + 1], journey.path[k + 2])
+        // Weight each sample by how long the player stayed before the next one.
+        // Samples stop while someone stands still, so a plain count would
+        // under-weight camping and looting spots. Capped so one AFK player
+        // can't light up a corner of the map.
+        const p = journey.path
+        for (let k = 0; k < p.length; k += 3) {
+          const stay = k + 3 < p.length ? p[k + 3] - p[k] : 5
+          add(p[k + 1], p[k + 2], Math.min(stay, 30) / 5)
+        }
       } else {
         for (const e of journey.events) if (CATEGORY[e[1]] === layer) add(e[2], e[3])
       }
