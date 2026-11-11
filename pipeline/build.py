@@ -7,7 +7,7 @@ into a few small JSON files the web app can load directly.
 Writes:
     public/data/manifest.json        map config, days, dataset stats
     public/data/<Map>.json           every match on that map, with journeys
-    public/minimaps/<Map>.webp       resized minimap images
+    public/minimaps/<Map>.webp       resized minimaps (+ small thumbnails)
 
 Everything that needs judgement about the data (timestamps, bot detection,
 duplicates) is decided here, once, so the frontend only has to draw.
@@ -17,7 +17,7 @@ import argparse
 import json
 import re
 from collections import Counter, defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pyarrow as pa
@@ -47,24 +47,16 @@ def world_to_map(x, z, cfg):
     return u * MAP_PX, (1 - v) * MAP_PX
 
 
-def folder_to_date(name):
-    # "February_10" -> "2026-02-10". The year isn't in the folder name; the
-    # timestamps put every row in Feb 2026.
-    return datetime.strptime(f"{name} 2026", "%B_%d %Y").date().isoformat()
-
-
 def decode(value):
     return value.decode("utf-8") if isinstance(value, bytes) else value
 
 
-def read_journeys(src):
-    """Yield one dict per parquet file (= one player in one match)."""
-    day_dirs = sorted(
-        (p for p in src.iterdir() if p.is_dir() and re.match(r"[A-Z][a-z]+_\d+$", p.name)),
-        key=lambda p: folder_to_date(p.name),
-    )
+def read_files(src):
+    """Yield the rows of each parquet file (= one player in one match)."""
+    # Day folders are February_10 .. February_14. They're only a delivery
+    # partition: a match's date comes from its timestamps (see shape_match).
+    day_dirs = sorted(p for p in src.iterdir() if p.is_dir() and re.match(r"[A-Z][a-z]+_\d+$", p.name))
     for day_dir in day_dirs:
-        day = folder_to_date(day_dir.name)
         for path in sorted(day_dir.iterdir()):
             try:
                 table = pq.read_table(path)
@@ -78,14 +70,16 @@ def read_journeys(src):
             table = table.set_column(table.schema.get_field_index("ts"), "ts", table["ts"].cast(pa.int64()))
             rows = table.to_pylist()
             if rows:
-                yield day, rows
+                yield rows
 
 
 def is_bot(user_id, event_names):
-    # The README says numeric ids are bots. That's true except for three ids
-    # (1379, 1402, 1429) that emit Position/Loot - the human-only events - and
-    # are the only player-controlled character in their matches. They look like
-    # internal test accounts, so the event stream wins over the id format.
+    # The dataset README says numeric ids are bots. Three numeric ids (1379,
+    # 1402, 1429) break that in 17 files: they emit Position and Loot, which
+    # only player characters do. 1429 is also an ordinary BotPosition bot in
+    # three other matches, so these ids look like per-session slots rather than
+    # accounts. Each file is judged by what it emits, and the id format is only
+    # a fallback for files with no movement rows.
     if "Position" in event_names:
         return False
     if "BotPosition" in event_names:
@@ -93,37 +87,38 @@ def is_bot(user_id, event_names):
     return user_id.isdigit()
 
 
+def collapse_double_write(rows):
+    """Three files contain their whole content twice, back to back. Keep one copy."""
+    half = len(rows) // 2
+    if half and len(rows) % 2 == 0 and rows[:half] == rows[half:]:
+        return rows[:half]
+    return rows
+
+
 def build(src, out):
     stats = defaultdict(int)
-    matches = {}  # match_id -> {"map", "day", "rows": {user_id: Counter of rows}}
+    matches = {}  # match_id -> {"map", "rows": {user_id: Counter of rows}}
 
-    for day, rows in read_journeys(src):
+    for rows in read_files(src):
         stats["files"] += 1
         stats["rows"] += len(rows)
         user_id, match_id, map_id = rows[0]["user_id"], rows[0]["match_id"], rows[0]["map_id"]
 
-        seen_positions = set()
-        cleaned = Counter()
-        for r in rows:
-            row = (r["ts"], decode(r["event"]), r["x"], r["z"])
-            if row[1] in MOVEMENT_EVENTS:
-                if row in seen_positions:
-                    stats["duplicatePositionsDropped"] += 1
-                    continue
-                seen_positions.add(row)
-            # Duplicate Loot / BotKill rows are kept on purpose: timestamps are
-            # whole seconds, so grabbing two items (or two kills) in the same
-            # second at the same spot is normal.
-            cleaned[row] += 1
+        single = collapse_double_write(rows)
+        if len(single) < len(rows):
+            stats["doubledFilesCollapsed"] += 1
+            rows = single
 
-        match = matches.setdefault(match_id, {"map": map_id, "day": day, "rows": {}})
-        # One match crosses midnight. Its human's file exists in both day
-        # folders: the Feb 10 copy is a partial snapshot of the Feb 11 one.
-        # Union (max count per row) merges them without double counting, and
-        # the match is filed under the earlier day.
-        match["day"] = min(match["day"], day)
+        # Identical rows that remain are real: timestamps are whole seconds,
+        # so two loot pickups in the same second at the same spot happen.
+        cleaned = Counter((r["ts"], decode(r["event"]), r["x"], r["z"]) for r in rows)
+
+        match = matches.setdefault(match_id, {"map": map_id, "rows": {}})
+        # One file (cfa03e9f.._ac049b28..) is copied verbatim into both the
+        # Feb 10 and Feb 11 folders. A Counter union (max count per row) folds
+        # a repeated file into one journey without double counting.
         if user_id in match["rows"]:
-            stats["overlappingFilesMerged"] += 1
+            stats["repeatedFilesMerged"] += 1
         match["rows"][user_id] = match["rows"].get(user_id, Counter()) | cleaned
 
     per_map = defaultdict(list)
@@ -149,12 +144,12 @@ def build(src, out):
         "maps": {
             name: {
                 **{k: v for k, v in cfg.items() if k != "source"},
-                "image": images[name],
+                **images[name],
                 "matches": len(per_map.get(name, [])),
             }
             for name, cfg in MAPS.items()
         },
-        "days": sorted({m["day"] for m in matches.values()}),
+        "days": sorted({m["day"] for items in per_map.values() for m in items}),
         "stats": {**stats, "matches": len(matches)},
     }
     write_json(data_dir / "manifest.json", manifest, indent=2)
@@ -189,7 +184,9 @@ def shape_match(match_id, m):
 
     return {
         "id": match_id.removesuffix(".nakama-0"),
-        "day": m["day"],
+        # UTC date of the first event. The day folders mostly agree, but four
+        # matches that start just before midnight sit in the next day's folder.
+        "day": datetime.fromtimestamp(start, timezone.utc).date().isoformat(),
         "startedAt": start,
         "duration": end - start,
         "humans": sum(not j["bot"] for j in journeys),
@@ -229,7 +226,9 @@ def export_minimaps(src_dir, out_dir):
         size = min(max(img.size), MAX_IMAGE_PX)
         img = img.resize((size, size), Image.LANCZOS)
         img.save(out_dir / f"{name}.webp", quality=82, method=6)
-        paths[name] = f"minimaps/{name}.webp"
+        # small copy for the map picker
+        img.resize((160, 160), Image.LANCZOS).save(out_dir / f"{name}_thumb.webp", quality=80)
+        paths[name] = {"image": f"minimaps/{name}.webp", "thumb": f"minimaps/{name}_thumb.webp"}
     return paths
 
 

@@ -1,6 +1,6 @@
 """Run with `python pipeline/test_build.py` (or pytest)."""
 
-from build import MAPS, is_bot, outcome, world_to_map
+from build import MAPS, collapse_double_write, is_bot, outcome, world_to_map
 
 
 def test_readme_worked_example():
@@ -20,6 +20,15 @@ def test_bot_detection_trusts_events_over_id():
     assert not is_bot("f4e072fa-b7af-4761-b567-1d95b7ad0108", {"Position", "Loot"})
     assert not is_bot("1429", {"Position", "Loot"})  # numeric id, but player-controlled
     assert is_bot("382", {"BotKilled"})  # no movement rows: fall back to the id
+
+
+def test_double_written_file_is_collapsed():
+    rows = [{"ts": 1, "event": b"Loot"}, {"ts": 2, "event": b"BotKill"}]
+    assert collapse_double_write(rows + rows) == rows
+    assert collapse_double_write(rows) == rows
+    # two genuine loot pickups in the same second must survive
+    same_second = [{"ts": 1, "event": b"Loot"}, {"ts": 1, "event": b"Loot"}, {"ts": 2, "event": b"Position"}]
+    assert collapse_double_write(same_second) == same_second
 
 
 def test_outcome():

@@ -6,6 +6,7 @@
       "originX": -370,
       "originZ": -473,
       "image": "minimaps/AmbroseValley.webp",
+      "thumb": "minimaps/AmbroseValley_thumb.webp",
       "matches": 566
     },
     "GrandRift": {
@@ -13,6 +14,7 @@
       "originX": -290,
       "originZ": -290,
       "image": "minimaps/GrandRift.webp",
+      "thumb": "minimaps/GrandRift_thumb.webp",
       "matches": 59
     },
     "Lockdown": {
@@ -20,10 +22,12 @@
       "originX": -500,
       "originZ": -500,
       "image": "minimaps/Lockdown.webp",
+      "thumb": "minimaps/Lockdown_thumb.webp",
       "matches": 171
     }
   },
   "days": [
+    "2026-02-09",
     "2026-02-10",
     "2026-02-11",
     "2026-02-12",
@@ -33,8 +37,8 @@
   "stats": {
     "files": 1243,
     "rows": 89104,
-    "duplicatePositionsDropped": 147,
-    "overlappingFilesMerged": 1,
+    "doubledFilesCollapsed": 3,
+    "repeatedFilesMerged": 1,
     "reclassifiedJourneys": 17,
     "matches": 796
   }
