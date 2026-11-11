@@ -228,6 +228,7 @@ export const Sidebar = memo(function Sidebar(p: Props) {
           <li>{p.manifest.stats.reclassifiedJourneys} files with numeric (bot-style) ids are treated as humans because they move and loot like players. They may be test or autoplay accounts.</li>
           <li>Most matches only include one human's file, and bot paths exist for about 50 matches, so the overview hides bots until you turn them on. Counts in this list are the human's events.</li>
           <li>"Survived" means no death was recorded. There is no explicit extraction event in the data.</li>
+          <li>14 Feb is a partial day (the data stops at 15:01 UTC), so its lower counts aren't a drop in play.</li>
         </ul>
       </details>
     </aside>

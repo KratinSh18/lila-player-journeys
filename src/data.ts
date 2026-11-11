@@ -68,6 +68,13 @@ export const EVENT_DESCRIPTION: Record<RawEvent, string> = {
   Loot: 'Picked up loot',
 }
 
+/** Bot files use the same event names, but from the bot's side. */
+export function describeEvent(name: RawEvent, bot: boolean) {
+  if (bot && name === 'BotKill') return 'Bot got a kill'
+  if (bot && name === 'BotKilled') return 'Bot was killed'
+  return EVENT_DESCRIPTION[name]
+}
+
 export const MAP_NAMES: Record<string, string> = {
   AmbroseValley: 'Ambrose Valley',
   GrandRift: 'Grand Rift',

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   CATEGORY,
-  EVENT_DESCRIPTION,
+  describeEvent,
   type Category,
   type GameEvent,
   type Journey,
@@ -162,14 +162,17 @@ export function MapCanvas(props: Props) {
     hits.current = nextHits
   }, [image])
 
-  const fit = useCallback(() => {
+  const wholeMapView = useCallback((): View => {
     const canvas = canvasRef.current
-    if (!canvas) return
-    const w = canvas.clientWidth
-    const h = canvas.clientHeight
+    const w = canvas?.clientWidth ?? 0
+    const h = canvas?.clientHeight ?? 0
     const k = (Math.min(w, h) / mapSize) * 0.96
-    view.current = { k, tx: (w - mapSize * k) / 2, ty: (h - mapSize * k) / 2 }
+    return { k, tx: (w - mapSize * k) / 2, ty: (h - mapSize * k) / 2 }
   }, [mapSize])
+
+  const fit = useCallback(() => {
+    if (canvasRef.current) view.current = wholeMapView()
+  }, [wholeMapView])
 
   /** Zoom to the area a match actually covers (a 30 s run is a speck on the full map). */
   const focusMatch = useCallback(
@@ -257,19 +260,57 @@ export function MapCanvas(props: Props) {
     return () => canvas.removeEventListener('wheel', onWheel)
   })
 
-  const zoomAt = (cx: number, cy: number, factor: number) => {
-    const v = view.current
+  // Zoom limits: from half the fitted size out to 15x in.
+  const clampK = (k: number) => {
     const canvas = canvasRef.current!
     const minK = (Math.min(canvas.clientWidth, canvas.clientHeight) / mapSize) * 0.5
-    const k = Math.min(Math.max(v.k * factor, minK), minK * 30)
+    return Math.min(Math.max(k, minK), minK * 30)
+  }
+
+  const anim = useRef(0)
+
+  const zoomAt = (cx: number, cy: number, factor: number) => {
+    cancelAnimationFrame(anim.current)
+    const v = view.current
+    const k = clampK(v.k * factor)
     view.current = { k, tx: cx - ((cx - v.tx) * k) / v.k, ty: cy - ((cy - v.ty) * k) / v.k }
     setHover(null)
     draw()
   }
 
+  /** Glide to a new view over ~0.3 s, so a click-to-zoom is easy to follow. */
+  const animateTo = (target: View) => {
+    cancelAnimationFrame(anim.current)
+    const from = { ...view.current }
+    const start = performance.now()
+    const step = (now: number) => {
+      const p = Math.min(1, (now - start) / 300)
+      const ease = 1 - (1 - p) ** 3
+      view.current = {
+        k: from.k + (target.k - from.k) * ease,
+        tx: from.tx + (target.tx - from.tx) * ease,
+        ty: from.ty + (target.ty - from.ty) * ease,
+      }
+      drawRef.current()
+      if (p < 1) anim.current = requestAnimationFrame(step)
+    }
+    anim.current = requestAnimationFrame(step)
+  }
+
+  /** Clicking empty map brings that spot to the centre and zooms in a step (Shift zooms out). */
+  const zoomToward = (cx: number, cy: number, zoomOut: boolean) => {
+    const canvas = canvasRef.current!
+    const v = view.current
+    const k = clampK(v.k * (zoomOut ? 1 / 1.6 : 1.6))
+    const mapX = (cx - v.tx) / v.k
+    const mapY = (cy - v.ty) / v.k
+    animateTo({ k, tx: canvas.clientWidth / 2 - mapX * k, ty: canvas.clientHeight / 2 - mapY * k })
+  }
+
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null)
 
   const onPointerDown = (e: React.PointerEvent) => {
+    cancelAnimationFrame(anim.current)
     drag.current = { x: e.clientX, y: e.clientY, moved: false }
     e.currentTarget.setPointerCapture(e.pointerId)
   }
@@ -303,8 +344,11 @@ export function MapCanvas(props: Props) {
     if (!wasClick) return
     // Hit-test where the pointer was released: a touch tap has no hover beforehand.
     const rect = e.currentTarget.getBoundingClientRect()
-    const hit = nearestHit(hits.current, e.clientX - rect.left, e.clientY - rect.top, e.pointerType === 'touch' ? 18 : 10)
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+    const hit = nearestHit(hits.current, x, y, e.pointerType === 'touch' ? 18 : 10)
     if (hit) props.onOpenEvent(hit.matchId, hit.event[0])
+    else zoomToward(x, y, e.shiftKey)
   }
 
   const world = hover ? mapToWorld(hover.hit.event[2], hover.hit.event[3], config, mapSize) : null
@@ -317,23 +361,19 @@ export function MapCanvas(props: Props) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerLeave={() => setHover(null)}
-        onDoubleClick={() => {
-          fit()
-          draw()
-        }}
-        style={{ cursor: hover ? 'pointer' : drag.current?.moved ? 'grabbing' : 'grab' }}
+        style={{ cursor: hover ? 'pointer' : drag.current?.moved ? 'grabbing' : 'zoom-in' }}
       />
       {!image && <div className="map-loading">{imageFailed ? "Couldn't load the minimap. Try reloading." : 'Loading minimap…'}</div>}
 
       <div className="zoom-controls">
         <button title="Zoom in" onClick={() => zoomAt(canvasRef.current!.clientWidth / 2, canvasRef.current!.clientHeight / 2, 1.5)}>+</button>
         <button title="Zoom out" onClick={() => zoomAt(canvasRef.current!.clientWidth / 2, canvasRef.current!.clientHeight / 2, 1 / 1.5)}>−</button>
-        <button title="Show the whole map (double-click)" onClick={() => { fit(); draw() }}>⤢</button>
+        <button title="Show the whole map" onClick={() => animateTo(wholeMapView())}>⤢</button>
       </div>
 
       {hover && world && (
-        <div className="tooltip" style={{ left: hover.x + 14, top: hover.y + 14 }}>
-          <strong>{EVENT_DESCRIPTION[hover.hit.event[1]]}</strong>
+        <div className="tooltip" style={tooltipPlacement(hover.x, hover.y, wrapRef.current)}>
+          <strong>{describeEvent(hover.hit.event[1], hover.hit.journey.bot)}</strong>
           <div>
             {hover.hit.journey.bot ? 'Bot' : 'Human'} {shortId(hover.hit.journey.player)} at {formatClock(hover.hit.event[0])}
           </div>
@@ -346,6 +386,17 @@ export function MapCanvas(props: Props) {
       )}
     </div>
   )
+}
+
+/** Keep the tooltip inside the map: flip it to the left/top of the cursor near the edges. */
+function tooltipPlacement(x: number, y: number, wrap: HTMLDivElement | null): React.CSSProperties {
+  const flipX = !!wrap && x + 290 > wrap.clientWidth
+  const flipY = !!wrap && y + 130 > wrap.clientHeight
+  return {
+    left: flipX ? x - 14 : x + 14,
+    top: flipY ? y - 14 : y + 14,
+    transform: `translate(${flipX ? '-100%' : '0'}, ${flipY ? '-100%' : '0'})`,
+  }
 }
 
 function strokePath(

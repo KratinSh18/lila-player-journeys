@@ -8,15 +8,15 @@ Live: **https://lila-player-journeys-one.vercel.app**
 
 ## Walkthrough
 
-1. Open the link. You land on Ambrose Valley with a time-spent heatmap and every human kill, death and storm death from all 566 matches. Bots are one click away under Players. The cards along the top summarise whatever is on screen.
+1. Open the link. You land on Ambrose Valley with a time-spent heatmap and every human kill, death and storm death from all 566 matches. Bots and loot are one click away under Show. The cards along the top summarise the human runs in the current selection.
 2. Use the map cards on the left to switch between Ambrose Valley, Grand Rift and Lockdown. Click a date chip to look at one day only, and click more chips to add days back.
 3. Change the heatmap to Kills, Deaths, Storm or Loot. Comparing Traffic with Deaths is the quickest way to find spots that are busy but safe, or quiet but deadly.
 4. Hover any marker to see what happened, who it was (human or bot), when, and the world x/z. Click it and that match opens 20 s before the event, plays up to it and pauses.
 5. Or pick a match from the list. Filter by how the human's run ended (died / storm / survived) and sort by newest, longest, shortest, most kills or most loot.
-6. In a match: play/pause, scrub, change speed (1–40×), or click a tick on the timeline to jump to a fight. Humans are solid cyan lines with round markers, and bots are dashed orange lines with square ones.
+6. In a match the map zooms to where it happened, and bots and loot are shown. Play/pause, scrub, change speed (1–40×), or click a tick on the timeline to jump to a fight. Humans are solid cyan lines with round markers, and bots are dashed orange lines with square ones.
 7. Turn on the Grid (A–J / 1–10) to talk about places, e.g. "the pit at E6". Copy link shares the exact match and moment.
 
-Shortcuts in a match: `space` play/pause, `←` `→` step 5 s, `esc` back to the overview. Scroll to zoom, drag to pan, double-click to reset the view.
+Map controls: click any empty spot to glide there and zoom in (Shift-click zooms out), scroll to zoom, drag to pan, and ⤢ shows the whole map again. In a match: `space` play/pause, `←` `→` step 5 s, `esc` back to the overview.
 
 ![A match being replayed, humans and bots](docs/match.jpg)
 

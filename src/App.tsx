@@ -10,13 +10,26 @@ import { TopBar } from './TopBar'
 // Map, match and time live in the URL hash so a designer can paste a link to a specific moment.
 const initialUrl = new URLSearchParams(window.location.hash.slice(1))
 
-const DEFAULT_LAYERS: Omit<Layers, 'bots'> = {
+const DEFAULT_LAYERS: Layers = {
   humans: true,
+  bots: false,
   // The traffic heatmap already shows where people go; 800 overlapping paths
-  // are better as an opt-in. Same for loot, which is ~13k markers.
+  // are better as an opt-in.
   paths: false,
   grid: false,
   events: { kill: true, death: true, storm: true, loot: false },
+}
+
+// A few settings differ between the overview and a single match, so each mode
+// keeps its own copy:
+// - bots: bot paths exist for only ~50 of 796 matches and would skew the
+//   overview's heatmaps, so they start hidden there and shown in a match
+// - loot: ~13k markers is noise in the overview, a few dozen in one match is useful
+// - heatmap: a traffic heatmap under one match's path is mostly noise
+type PerMode = { bots: boolean; loot: boolean; heat: HeatLayer }
+const MODE_DEFAULTS: Record<'overview' | 'match', PerMode> = {
+  overview: { bots: false, loot: false, heat: 'traffic' },
+  match: { bots: true, loot: true, heat: 'off' },
 }
 
 export default function App() {
@@ -26,13 +39,7 @@ export default function App() {
   const [mapMatches, setMapMatches] = useState<{ mapId: string; matches: Match[] } | null>(null)
   const [days, setDays] = useState<string[]>([])
   const [baseLayers, setBaseLayers] = useState(DEFAULT_LAYERS)
-  // Two settings differ between the overview and a single match, so each mode
-  // keeps its own. Bot paths exist for only ~50 of 796 matches, which would
-  // skew the overview's heatmaps, so bots start hidden there and shown in a
-  // match. A traffic heatmap under one match's path is mostly noise, so it
-  // starts off in a match.
-  const [botsByMode, setBotsByMode] = useState({ overview: false, match: true })
-  const [heatByMode, setHeatByMode] = useState<{ overview: HeatLayer; match: HeatLayer }>({ overview: 'traffic', match: 'off' })
+  const [perMode, setPerMode] = useState(MODE_DEFAULTS)
   const [heatOpacity, setHeatOpacity] = useState(0.65)
   const [selectedId, setSelectedId] = useState<string | null>(initialUrl.get('match'))
   const [time, setTime] = useState(Number(initialUrl.get('t')) || 0)
@@ -52,6 +59,9 @@ export default function App() {
   }, []) // once on startup; mapId here is only checked against the manifest
 
   useEffect(() => {
+    // Wait for the manifest so a mistyped map in a shared link falls back to the
+    // first map instead of failing on a 404.
+    if (!manifest?.maps[mapId]) return
     let current = true
     loadMatches(mapId)
       .then((matches) => current && setMapMatches({ mapId, matches }))
@@ -59,7 +69,7 @@ export default function App() {
     return () => {
       current = false
     }
-  }, [mapId])
+  }, [mapId, manifest])
 
   const allMatches = mapMatches?.mapId === mapId ? mapMatches.matches : []
   const loading = mapMatches?.mapId !== mapId
@@ -71,16 +81,19 @@ export default function App() {
   }, [allMatches])
   const match = useMemo(() => allMatches.find((m) => m.id === selectedId) ?? null, [allMatches, selectedId])
   const mode = match ? 'match' : 'overview'
-  const layers: Layers = useMemo(() => ({ ...baseLayers, bots: botsByMode[mode] }), [baseLayers, botsByMode, mode])
+  const layers: Layers = useMemo(
+    () => ({ ...baseLayers, bots: perMode[mode].bots, events: { ...baseLayers.events, loot: perMode[mode].loot } }),
+    [baseLayers, perMode, mode],
+  )
   const setLayers = useCallback(
-    ({ bots, ...rest }: Layers) => {
-      setBaseLayers(rest)
-      setBotsByMode((prev) => ({ ...prev, [mode]: bots }))
+    (next: Layers) => {
+      setBaseLayers(next)
+      setPerMode((prev) => ({ ...prev, [mode]: { ...prev[mode], bots: next.bots, loot: next.events.loot } }))
     },
     [mode],
   )
-  const heatLayer = heatByMode[mode]
-  const setHeatLayer = useCallback((layer: HeatLayer) => setHeatByMode((prev) => ({ ...prev, [mode]: layer })), [mode])
+  const heatLayer = perMode[mode].heat
+  const setHeatLayer = useCallback((heat: HeatLayer) => setPerMode((prev) => ({ ...prev, [mode]: { ...prev[mode], heat } })), [mode])
 
   const heat = useMemo(() => {
     if (heatLayer === 'off' || !manifest) return null
@@ -316,7 +329,7 @@ function FirstRunTip() {
       <ol>
         <li>The heatmap shows where players spend their time. Switch it to Kills or Deaths on the left.</li>
         <li>Hover any marker to see who, when and where. Click it to replay that match from just before.</li>
-        <li>Pick a match from the list to watch it play out. Scroll to zoom, drag to pan.</li>
+        <li>Pick a match from the list to watch it play out. Click the map to zoom in on a spot (Shift-click zooms out), drag to pan.</li>
       </ol>
       <button onClick={close}>Got it</button>
     </div>

@@ -1,6 +1,6 @@
 # Three things I learned from the data
 
-All numbers come from the processed data in `public/data` (human journeys only unless I say otherwise). The links open the live tool on the right map or match. Grid references (like `E6`) use the tool's A–J / 1–10 grid. Turn it on under Overlays.
+All numbers come from the processed data in `public/data` (human journeys only unless I say otherwise). The links open the live tool on the right map or match. Grid references (like `E6`) use the tool's A–J / 1–10 grid. Turn it on with the Grid toggle under Show.
 
 ---
 
@@ -16,13 +16,13 @@ All numbers come from the processed data in `public/data` (human journeys only u
 | Labour + Engineer's Quarters (B5–C6, H6–I7) | 23% | **0** |
 
 - 43 of the 59 Grand Rift runs pass through the pit, and 19 of those 43 players (44%) die inside it.
-- Humans kill bots in the pit at nearly twice the rate of the rest of the map (90 bot kills per 1,000 samples, against 48 map-wide). So the pit is packed with bots, and players lose most of those fights.
+- The pit is packed with bots. Humans get 90 bot kills per 1,000 samples there, against 48 map-wide. Players win most of those fights (74 kills to 19 deaths), but 19 of the 34 players who fight in the pit die there.
 - Ambrose Valley has a milder version: cells C5–E6 hold about half of all deaths on less than a quarter of the traffic.
 
 **Actionable.**
 - Make the pit floor survivable: add cover and a second way out of E5–E7, or cut the number of bots placed inside it.
 - If the Quarters are meant to carry some risk, move a bot patrol or better loot there. Leave Labour Quarters (B5) alone, because 16 of the 59 runs spawn there, and danger next to a spawn turns into spawn camping.
-- Metrics that should move: the pit's share of deaths (76% now), the share of pit visitors who die there (44%), and Grand Rift's overall death rate (25 of 59 runs).
+- Metrics that should move: the pit's share of deaths (76% now), the share of pit visitors who die there (44%), and Grand Rift's combat death rate (25 of 59 runs).
 
 **Why a level designer should care.** One room decides most Grand Rift matches, and the rest of the map has no risk at all. Both causes, the geometry and where bots are placed, belong to the level team.
 
@@ -66,7 +66,7 @@ All numbers come from the processed data in `public/data` (human journeys only u
 - After about 10:40, no one on Lockdown is killed by a bot. Every late death is the storm.
 - One player accounts for 6 of the 17 storm deaths. Even without them it's 11 of 29 (38%), still double Ambrose Valley.
 - Players pick up loot more slowly on Lockdown (1.7 items per minute against 2.7 on Ambrose Valley). People who stay late are likely trying to fill their bags, and they run out of time.
-- An example: [match 18c1b2c6](https://lila-player-journeys-one.vercel.app/#map=Lockdown&match=18c1b2c6-4f87-4200-9816-68fa448de33b&t=760). The player reaches the east edge (I4/I5) at 13:39 and dies to the storm at 13:44.
+- An example: [match 18c1b2c6](https://lila-player-journeys-one.vercel.app/#map=Lockdown&match=18c1b2c6-4f87-4200-9816-68fa448de33b&t=760). The player reaches the east edge (I5) at 13:34 and dies to the storm in I4 at 13:44.
 
 **Actionable.**
 - Try the cheap fixes first: a clearer storm or extraction warning before 10:30, and more loot on Lockdown so bags fill sooner.
