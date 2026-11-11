@@ -1,0 +1,41 @@
+{
+  "mapSize": 1024,
+  "maps": {
+    "AmbroseValley": {
+      "scale": 900,
+      "originX": -370,
+      "originZ": -473,
+      "image": "minimaps/AmbroseValley.webp",
+      "matches": 566
+    },
+    "GrandRift": {
+      "scale": 581,
+      "originX": -290,
+      "originZ": -290,
+      "image": "minimaps/GrandRift.webp",
+      "matches": 59
+    },
+    "Lockdown": {
+      "scale": 1000,
+      "originX": -500,
+      "originZ": -500,
+      "image": "minimaps/Lockdown.webp",
+      "matches": 171
+    }
+  },
+  "days": [
+    "2026-02-10",
+    "2026-02-11",
+    "2026-02-12",
+    "2026-02-13",
+    "2026-02-14"
+  ],
+  "stats": {
+    "files": 1243,
+    "rows": 89104,
+    "duplicatePositionsDropped": 147,
+    "overlappingFilesMerged": 1,
+    "reclassifiedJourneys": 17,
+    "matches": 796
+  }
+}

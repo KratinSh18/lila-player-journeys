@@ -1,0 +1,9 @@
+node_modules
+dist
+.vercel
+.DS_Store
+__pycache__
+.venv
+# Raw telemetry from player_data.zip. See README for how to rebuild public/data from it.
+data/player_data
+data/*.zip
