@@ -1,41 +1,34 @@
 # Architecture
 
-**Stack, and why.**
-- Python + pyarrow: reads the parquet files directly, and the data rules are easy to test in Python.
-- React + TypeScript + Vite: fast to build with, and the types keep the JSON contract explicit.
-- Canvas 2D: draws one image plus ~90k points quickly, and gives full control over zoom, playback and hit-testing.
-- Vercel: static hosting. No server, no cold starts, and it redeploys on every push.
+**What I used and why.** Python and pyarrow for the pipeline, since they read parquet directly and the rules are easy to test. React, TypeScript and Vite for the app, quick to build with typed JSON. Canvas 2D for the map, fast with ~60k points. Vercel for static hosting with no server.
 
-**Data flow.** `pipeline/build.py` reads the 1,243 parquet files, decodes and cleans them, and decides human vs bot. It groups rows into matches, projects world (x, z) to minimap pixels, and writes one JSON per map plus a manifest and resized minimaps (`public/`). The browser loads one map's JSON (~435 KB compressed), filters by date and players, then `heatmap.ts` and `MapCanvas.tsx` draw it. All judgement calls about the data live in the pipeline.
+**Data flow.** `pipeline/build.py` runs once at build time. It reads the 1,243 parquet files, cleans them, decides human vs bot, groups rows into matches, converts world (x, z) to minimap pixels and writes one JSON per map. The browser loads the selected map's JSON (up to ~435 KB compressed), filters it by date and player type, and `MapCanvas.tsx` draws it.
 
-## Coordinate mapping
-
-The dataset README gives an origin and a scale per map. They define a square of world (x, z) that the minimap covers edge to edge:
+**Coordinate mapping.** Each map's origin and scale (from the dataset README) mark out the square of world space the minimap covers:
 
 ```
 u = (x - originX) / scale      v = (z - originZ) / scale
-px = u * 1024                  py = (1 - v) * 1024        # image y grows downwards
+px = u * 1024                  py = (1 - v) * 1024    # image y grows downwards
 ```
 
-`y` is height, so it's dropped. The README says the images are 1024², but they're 4320², 2160×2158 and 9000². Positions are kept in the README's 1024 space and the image is drawn scaled into a 1024 box, so the resolution doesn't matter. Grand Rift is stretched 2 px to make it square. Checks: `test_build.py` asserts the README's worked example ((−301.45, −355.55) → (78, 890)); all 89k points plotted on their minimaps stay on roads, buildings and river beds; the tooltip shows world x/z through the inverse transform.
+`y` is height, so I drop it. The minimaps are really 4320, 2160x2158 and 9000 px wide, so positions stay in 1024 space and each image is drawn into a 1024 box. `test_build.py` checks that the README example (-301.45, -355.55) lands on (78, 890), and plotting all 89k points puts them on roads and buildings.
 
-## Assumptions and data quirks
+**Assumptions.**
 
-| Found | Did |
-|---|---|
-| `ts` is typed as ms but holds Unix **seconds** (read as ms, it's Jan 1970). `event` is bytes. | Read `ts` as seconds; match time = ts − the match's first ts. Decode `event` as UTF-8. |
-| 3 files are written twice back to back. 1 file is copied into two day folders. | Collapse the doubled files and merge per (match, player). ~1.2k other identical Loot rows are kept, since two pickups in one second are real. |
-| Positions are only logged while a player moves (every 5 s). | Traffic heatmap weights each sample by time spent there (cap 30 s). Playback holds players still through gaps. |
-| Numeric ids 1379/1402/1429 emit player-only events (`Position`, `Loot`) in 17 files. | Classify each file by its events; the id format is only a fallback. |
-| 4 matches sit in the next day's folder. 14 Feb is partial. | A match's date is the UTC date of its first event. The notes flag 14 Feb. |
-| Usually one human file per match, and bot files in only 52 of 796. No extraction event. | Counts in the list are the human's. The overview hides bots by default. No death means "Survived". |
+- `ts` is typed ms but holds seconds, and `event` is bytes. I read seconds and decode UTF-8.
+- 3 files are written twice and 1 sits in two day folders. I keep one copy of each.
+- Positions only come while a player moves, so traffic is weighted by time spent (max 30 s).
+- Numeric ids 1379, 1402, 1429 act like players, so events, not ids, decide human vs bot.
+- A match's day is the UTC day of its first event (one is 9 Feb, 23:58). 14 Feb is partial.
+- Only 52 of 796 matches have bot files, so bots start hidden in the overview.
+- There is no extraction event, so a run with no death is called "Survived".
 
-## Trade-offs
+**Trade-offs.**
 
-| Decision | Considered | Picked |
+| Decision | Considered | Chose |
 |---|---|---|
-| Parse parquet | DuckDB-WASM in the browser | At build time. The data is fixed, so there's no need to download MBs of WASM on every visit. |
-| Rendering | Leaflet (CRS.Simple), deck.gl, SVG | Canvas. One image plus markers doesn't need a map library's layer model, and SVG slows down past ~10k nodes. |
-| Data files | One per match / one big file | One per map. Heatmaps need every match on the map anyway. |
-| Heatmap scale | Linear to the max | sqrt, scaled to the 99.5th percentile, so one hot spawn doesn't wash out the rest. |
-| Hosting | Render, Railway | Vercel static. Render's free tier sleeps, so the first visit would wait about 50 s. |
+| Parse parquet | DuckDB-WASM in the browser | Build time, no WASM per visit |
+| Rendering | Leaflet, deck.gl, SVG | Canvas, SVG slows past ~10k nodes |
+| Data files | One per match | One per map, heatmaps need all |
+| Heatmap scale | Linear to the max | Square root, 99.5th percentile |
+| Hosting | Render | Vercel, Render's free tier sleeps |
