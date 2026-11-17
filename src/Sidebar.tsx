@@ -112,7 +112,7 @@ export const Sidebar = memo(function Sidebar(p: Props) {
               key={day}
               className={!allDays && p.days.includes(day) ? 'chip active' : 'chip'}
               aria-pressed={!allDays && p.days.includes(day)}
-              disabled={!p.dayCounts[day]}
+              disabled={!p.dayCounts[day] && (allDays || !p.days.includes(day))}
               onClick={() => clickDay(day)}
               title={!p.dayCounts[day] ? 'No matches on this map that day' : allDays ? 'Show only this day' : 'Add or remove this day'}
             >
@@ -228,6 +228,7 @@ export const Sidebar = memo(function Sidebar(p: Props) {
           <li>{p.manifest.stats.reclassifiedJourneys} files with numeric (bot-style) ids are treated as humans because they move and loot like players. They may be test or autoplay accounts.</li>
           <li>Most matches only include one human's file, and bot paths exist for about 50 matches, so the overview hides bots until you turn them on. Counts in this list are the human's events.</li>
           <li>"Survived" means no death was recorded. There is no explicit extraction event in the data.</li>
+          <li>One match starts at 23:58 UTC on 9 Feb. Days come from each match's first event, not the folder it sits in, so it gets its own 9 Feb chip.</li>
           <li>14 Feb is a partial day (the data stops at 15:01 UTC), so its lower counts aren't a drop in play.</li>
         </ul>
       </details>

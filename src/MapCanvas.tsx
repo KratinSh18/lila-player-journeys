@@ -448,9 +448,14 @@ function drawGrid(ctx: CanvasRenderingContext2D, { k, tx, ty }: View, mapSize: n
   ctx.stroke()
   ctx.fillStyle = 'rgba(255, 255, 255, 0.7)'
   ctx.font = '600 11px system-ui, sans-serif'
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.9)'
+  ctx.shadowBlur = 3
+  // Zoomed in past the map's top or left edge, the labels stick to the edge of the screen instead
+  const lx = Math.min(Math.max(tx, 0), tx + mapSize * k - 20)
+  const ly = Math.min(Math.max(ty, 0), ty + mapSize * k - 16)
   for (let i = 0; i < 10; i++) {
-    ctx.fillText('ABCDEFGHIJ'[i], tx + (i + 0.5) * cell * k - 3, ty + 13)
-    ctx.fillText(String(i + 1), tx + 4, ty + (i + 0.5) * cell * k + 4)
+    ctx.fillText('ABCDEFGHIJ'[i], tx + (i + 0.5) * cell * k - 3, ly + 13)
+    ctx.fillText(String(i + 1), lx + 4, ty + (i + 0.5) * cell * k + 4)
   }
   ctx.restore()
 }
